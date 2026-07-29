@@ -10,7 +10,9 @@ A single-file static web app. No build step, no server, no secrets stored by you
 
 | File | Purpose |
 | --- | --- |
-| `index.html` | The entire app — fonts, runtime, and logic are inlined |
+| `index.html` | The entire front end — fonts, runtime, and logic are inlined |
+| `api/yt.js` | Serverless endpoint that resolves a rung to a real YouTube video |
+| `api/_ytsearch.js` | The YouTube search itself (shared library, not a route) |
 | `vercel.json` | Static hosting config (clean URLs + security headers) |
 
 ## Run it locally
@@ -22,8 +24,12 @@ python3 -m http.server 8000
 # then open http://localhost:8000
 ```
 
-Opening `index.html` straight off the filesystem (`file://`) also works in most
-browsers, but a local server matches production more closely.
+That serves the front end, but not `/api/yt` — rungs will fall back to search
+links. To run the API locally too, use the Vercel CLI, which serves both:
+
+```bash
+npx vercel dev
+```
 
 ## Deploy
 
@@ -81,29 +87,35 @@ Add rate limiting before doing this publicly — otherwise visitors spend your t
 
 ## How the YouTube links resolve
 
-Every rung links to study material, and a rung must never land on a dead video. The
-app resolves each link in three steps:
+Clicking a rung opens the lesson itself, not a search box.
 
-1. The model returns both a search query and a candidate 11-character video ID for
-   the rung.
-2. The browser checks that ID against YouTube's public
-   [oEmbed endpoint](https://www.youtube.com/oembed) — no API key, no quota. A
-   deleted, private, or invented ID returns 404 and is discarded. The endpoint also
-   returns the video's real title and channel, which are checked for a content-word
-   overlap with the rung, so a live-but-unrelated video is rejected too.
-3. A video that passes both checks becomes a direct
-   `youtube.com/watch?v=…` link, labelled **▶ Watch on YouTube**, with the verified
-   title and channel shown beneath it. Anything that fails falls back to a YouTube
-   search for that rung, labelled **▶ Find on YouTube**.
+A browser cannot search YouTube: there is no keyless JSON search API, and CORS
+blocks reading the results page from the page itself. So the search runs
+server-side, in `api/yt.js`:
 
-Verification verdicts are cached in `localStorage`, so a rung is only checked once
-per browser. If the check itself fails — offline, or a network that blocks YouTube —
-the link degrades to search rather than breaking.
+1. The model writes a search phrase for each rung (`yt`).
+2. The client calls `/api/yt?q=<phrase>` for all ten rungs the moment a ladder
+   opens — same origin, so no CORS and no API key.
+3. The function loads YouTube's results page with the **Videos** filter applied,
+   walks `ytInitialData`, skips live streams, and returns the top video's id,
+   title, channel, and duration.
+4. The rung becomes a direct `youtube.com/watch?v=…` link labelled
+   **▶ Watch on YouTube**, with the real title and channel shown beneath it.
 
-The fallback exists because there is no keyless way to run a YouTube *search* from a
-static page; only ID *verification* is free. To make every rung a direct video, add a
-[YouTube Data API](https://developers.google.com/youtube/v3) key and resolve each
-`yt` query through `search.list` — replace `ytUrlFor()` in `index.html`.
+No API key and no quota — the function reads the same page a person would.
+Resolved queries are cached at the Vercel edge for a day and in each visitor's
+`localStorage` forever, so a rung is looked up once.
+
+If `/api/yt` is unavailable — the file opened straight off disk, or hosted
+somewhere without the function — links fall back to a YouTube search and the
+button reads **▶ Find on YouTube**, so a rung degrades rather than breaking.
+
+### Files behind it
+
+| File | Role |
+| --- | --- |
+| `api/_ytsearch.js` | The search and result parsing (underscore = library, not a route) |
+| `api/yt.js` | `GET /api/yt?q=` endpoint wrapping it |
 
 ## Notes
 
