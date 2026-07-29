@@ -1,0 +1,12 @@
+# Vercel
+.vercel
+
+# Node (only if you later add tooling — the app itself needs none)
+node_modules/
+npm-debug.log*
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
