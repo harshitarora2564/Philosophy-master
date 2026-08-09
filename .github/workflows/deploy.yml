@@ -1,0 +1,97 @@
+name: Deploy
+
+# The path a change takes to the live site:
+#
+#   commit -> push to GitHub -> verify -> Vercel build -> ladder-philosophy-mastery.vercel.app
+#
+# Pushing the repo's default branch promotes to production. Every other branch
+# and every pull request gets its own preview URL, so a change can be looked at
+# before it becomes the site people land on.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch makes an in-flight deploy of that branch
+# pointless — let it win rather than racing it.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: node scripts/verify.mjs
+
+  deploy:
+    name: Deploy to Vercel
+    needs: verify
+    runs-on: ubuntu-latest
+    # A branch in this repo already deployed on its own push event, and a fork
+    # cannot read the secrets — so a pull_request run only needs to verify.
+    if: github.event_name != 'pull_request'
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      # Only the default branch is the live site. Whatever the branch is named,
+      # this follows it, so renaming it later does not break the pipeline.
+      IS_PRODUCTION: ${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Vercel's own Git integration can deploy this repo without any of this.
+      # If it is the one doing the work, the secrets are absent and this job
+      # steps aside instead of double-deploying every commit.
+      - name: Look for Vercel credentials
+        id: creds
+        run: |
+          if [ -n "$VERCEL_TOKEN" ] && [ -n "$VERCEL_ORG_ID" ] && [ -n "$VERCEL_PROJECT_ID" ]; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::No Vercel credentials set — skipping this job. Either Vercel'"'"'s Git integration owns deploys, or setup is incomplete. See DEPLOYMENT.md.'
+          fi
+
+      - name: Pull project settings
+        if: steps.creds.outputs.present == 'true'
+        run: |
+          npx --yes vercel@latest pull --yes \
+            --environment="$([ "$IS_PRODUCTION" = 'true' ] && echo production || echo preview)" \
+            --token="$VERCEL_TOKEN"
+
+      - name: Build
+        if: steps.creds.outputs.present == 'true'
+        run: |
+          npx --yes vercel@latest build \
+            $([ "$IS_PRODUCTION" = 'true' ] && echo --prod) \
+            --token="$VERCEL_TOKEN"
+
+      - name: Deploy
+        if: steps.creds.outputs.present == 'true'
+        id: deploy
+        run: |
+          url=$(npx --yes vercel@latest deploy --prebuilt \
+            $([ "$IS_PRODUCTION" = 'true' ] && echo --prod) \
+            --token="$VERCEL_TOKEN")
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Summarise
+        if: steps.creds.outputs.present == 'true'
+        run: |
+          if [ "$IS_PRODUCTION" = 'true' ]; then
+            echo "Production deploy: ${{ steps.deploy.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Preview deploy: ${{ steps.deploy.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
+          fi
