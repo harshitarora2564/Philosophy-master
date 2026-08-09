@@ -14,6 +14,9 @@ A single-file static web app. No build step, no server, no secrets stored by you
 | `api/yt.js` | Serverless endpoint that resolves a rung to a real YouTube video |
 | `api/_ytsearch.js` | The YouTube search itself (shared library, not a route) |
 | `vercel.json` | Static hosting config (clean URLs + security headers) |
+| `scripts/verify.mjs` | Pre-deploy checks, run by CI and runnable by hand |
+| `.github/workflows/deploy.yml` | Push → verify → Vercel pipeline |
+| `DEPLOYMENT.md` | How a change reaches the live site, and the one-time setup |
 
 ## Run it locally
 
@@ -33,20 +36,29 @@ npx vercel dev
 
 ## Deploy
 
-**Vercel — Git import.** Point Vercel at this repo. Framework preset **Other**,
-build command **none**, output directory **`.`** (root). `vercel.json` is picked up
-automatically.
+A change reaches <https://ladder-philosophy-mastery.vercel.app> by being pushed:
 
-**Vercel — CLI.**
+```
+edit  ->  commit  ->  push to GitHub  ->  verify  ->  Vercel build  ->  live site
+```
+
+Pushing the default branch updates the live site. Any other branch or pull
+request gets its own preview URL instead. Nothing is uploaded to Vercel by hand,
+so the site always matches a commit.
+
+Wiring it up is a one-time job — **[DEPLOYMENT.md](DEPLOYMENT.md)** has the two
+options (Vercel's Git integration, or GitHub Actions with a Vercel token), the
+production-branch setup, and how to roll a bad deploy back.
+
+Before pushing, the same checks CI runs:
 
 ```bash
-npm i -g vercel
-vercel          # preview deploy
-vercel --prod   # production
+node scripts/verify.mjs
 ```
 
 **Anywhere else.** Any static host works — GitHub Pages, Netlify, Cloudflare Pages,
-S3. Upload `index.html` and you're done.
+S3 — but `/api/yt` is a Vercel Function, so rungs fall back to search links off
+Vercel.
 
 ## How the AI connection works
 
