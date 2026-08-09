@@ -17,6 +17,7 @@ A single-file static web app. No build step, no server, no secrets stored by you
 | `scripts/verify.mjs` | Pre-deploy checks, run by CI and runnable by hand |
 | `.github/workflows/deploy.yml` | Push → verify → Vercel pipeline |
 | `DEPLOYMENT.md` | How a change reaches the live site, and the one-time setup |
+| `CLAUDE.md` | Repo conventions for agents working here |
 
 ## Run it locally
 
