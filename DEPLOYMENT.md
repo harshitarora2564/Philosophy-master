@@ -29,52 +29,64 @@ here.
 Two ways to wire GitHub to Vercel. **Pick one** — running both deploys every
 commit twice.
 
-### Option A — Vercel's Git integration (recommended)
+Which one you want turns on a single question: **should a failing check be able
+to stop a production deploy?**
 
-No secrets, no CI minutes, and preview URLs get posted onto pull requests
-automatically.
+- Under Vercel's Git integration, **no**. Vercel watches the repo directly and
+  builds on push; it never sees the result of the `verify` job. A commit that
+  fails CI still goes live, with a red X sitting next to it afterwards.
+- Under GitHub Actions, **yes**. `deploy` declares `needs: verify`, so a failing
+  check means production is simply never touched.
 
-1. Vercel → the **ladder-philosophy-mastery** project → **Settings → Git**.
-2. **Connect Git Repository** → GitHub → `harshitarora2564/Philosophy-master`.
-3. Set **Production Branch** to the branch you want live (see *Production
-   branch* below).
-4. Confirm **Settings → Build & Deployment**: framework preset **Other**, build
-   command empty, output directory `.` (root). `vercel.json` is picked up
-   automatically.
+If people push to `main` by hand after looking at the diff, the first is fine
+and simpler. If pushes to `main` are automated — an agent, a bot, a scheduled
+job — take the second: the check is the only thing standing between a bad commit
+and the live site.
 
-Done. Every push now builds; pushes to the production branch go live. The
-`verify` job in the workflow still runs on each push and reports on the commit,
-and the `deploy` job notices there are no credentials and steps aside.
+### Option A — GitHub Actions (recommended here, because production is gated)
 
-### Option B — deploy from GitHub Actions
-
-Use this if the deploy has to be gated on CI passing, or if the Vercel project
-cannot be connected to the repo. Add three repository secrets under
-**GitHub → Settings → Secrets and variables → Actions**:
+Add three repository secrets under **GitHub → Settings → Secrets and variables →
+Actions → New repository secret**:
 
 | Secret | Where it comes from |
 | --- | --- |
-| `VERCEL_TOKEN` | Vercel → Account Settings → Tokens → **Create** |
-| `VERCEL_ORG_ID` | `npx vercel link` in a clone, then read `.vercel/project.json` → `orgId` |
-| `VERCEL_PROJECT_ID` | the same file → `projectId` |
+| `VERCEL_TOKEN` | Vercel → **Account Settings → Tokens** → Create, scoped to the team that owns the project |
+| `VERCEL_ORG_ID` | Vercel → **Settings → General → Team ID** (or `.vercel/project.json` → `orgId` after `npx vercel link`) |
+| `VERCEL_PROJECT_ID` | Vercel → the project → **Settings → General → Project ID** |
 
-The workflow only deploys once all three are present, so adding them is what
-switches this path on. If the project is *also* connected under Option A,
-disconnect it first (**Settings → Git → Disconnect**).
+The workflow deploys only once all three are present, so adding them is what
+switches this path on. Leave the project **disconnected** from the repo in
+Vercel (**Settings → Git**) — if it is connected too, every commit deploys
+twice.
+
+Confirm **Settings → Build & Deployment** on the project: framework preset
+**Other**, build command empty, output directory `.` (root). `vercel.json` is
+picked up automatically.
+
+### Option B — Vercel's Git integration
+
+No secrets, no CI minutes, and preview URLs get posted onto pull requests
+automatically — at the cost of the gate described above.
+
+1. Vercel → the **ladder-philosophy-mastery** project → **Settings → Git**.
+2. **Connect Git Repository** → GitHub → `harshitarora2564/Philosophy-master`.
+3. Set **Production Branch** to `main`.
+4. Same Build & Deployment settings as above.
+
+The `verify` job still runs on each push and reports on the commit — it just
+cannot block anything. The `deploy` job finds no credentials and steps aside, so
+there is no double deploy.
 
 ## Production branch
 
-The repo's only branch today is `claude/web-app-from-zip-m2j8fm`, which works
-but is an odd name for the branch that is the public site. The usual shape:
+`main` is the production branch, and it must also be the repository's **default**
+branch — the workflow decides production-vs-preview by comparing the pushed
+branch against the default one, so if the default is still something else, a
+push to `main` is treated as a preview.
 
-```bash
-git checkout -b main <the branch carrying the site>
-git push -u origin main
-```
-
-Then set `main` as the default branch on GitHub (**Settings → General → Default
-branch**) and as the **Production Branch** in Vercel. Feature work lands via
-pull request, each PR gets a preview URL, and merging to `main` ships.
+Set it under **GitHub → Settings → General → Default branch**. Once that is
+done, the two original `claude/*` branches are fully contained in `main` and can
+be deleted.
 
 ## What runs before a deploy
 
